@@ -36,11 +36,11 @@
   ];
 
   let safetyMode = "home"; // synced via Firebase so everyone sees the same
-  const modeRef = ref(db, "loza-lounge/safetyMode");
 
   const app      = initializeApp(firebaseConfig);
   const db       = getDatabase(app);
   const itemsRef = ref(db, "loza-lounge/items");
+  const modeRef  = ref(db, "loza-lounge/safetyMode");
 
   // ── WEEK HELPERS ─────────────────────────────────────────────────
   function getWeekStart(ts) {
