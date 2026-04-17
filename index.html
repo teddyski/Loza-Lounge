@@ -21,19 +21,22 @@
   };
 
   const FOOD_TYPES = [
-    { value: "red-meat",    label: "Red Meat (cooked)",   days: 4, icon: "🥩" },
-    { value: "poultry",     label: "Poultry (cooked)",    days: 4, icon: "🍗" },
-    { value: "seafood",     label: "Seafood (cooked)",    days: 2, icon: "🐟" },
-    { value: "pizza",       label: "Pizza",               days: 4, icon: "🍕" },
-    { value: "soup-stew",   label: "Soup / Stew",         days: 4, icon: "🍲" },
-    { value: "rice-grains", label: "Rice / Grains",       days: 5, icon: "🍚" },
-    { value: "eggs-dairy",  label: "Egg / Dairy Dish",    days: 4, icon: "🥚" },
-    { value: "salad",       label: "Salad / Greens",      days: 2, icon: "🥗" },
-    { value: "produce",     label: "Fresh Produce",       days: 3, icon: "🍓" },
-    { value: "baked",       label: "Baked Goods",         days: 5, icon: "🥧" },
-    { value: "mixed",       label: "Mixed Dish",          days: 4, icon: "🌯" },
-    { value: "other",       label: "Other",               days: 4, icon: "🍴" },
+    { value: "red-meat",    label: "Red Meat (cooked)",   strict: 4, home: 6, icon: "🥩" },
+    { value: "poultry",     label: "Poultry (cooked)",    strict: 4, home: 5, icon: "🍗" },
+    { value: "seafood",     label: "Seafood (cooked)",    strict: 2, home: 3, icon: "🐟" },
+    { value: "pizza",       label: "Pizza",               strict: 4, home: 5, icon: "🍕" },
+    { value: "soup-stew",   label: "Soup / Stew",         strict: 4, home: 6, icon: "🍲" },
+    { value: "rice-grains", label: "Rice / Grains",       strict: 5, home: 6, icon: "🍚" },
+    { value: "eggs-dairy",  label: "Egg / Dairy Dish",    strict: 4, home: 5, icon: "🥚" },
+    { value: "salad",       label: "Salad / Greens",      strict: 2, home: 3, icon: "🥗" },
+    { value: "produce",     label: "Fresh Produce",       strict: 3, home: 5, icon: "🍓" },
+    { value: "baked",       label: "Baked Goods",         strict: 5, home: 7, icon: "🥧" },
+    { value: "mixed",       label: "Mixed Dish",          strict: 4, home: 6, icon: "🌯" },
+    { value: "other",       label: "Other",               strict: 4, home: 5, icon: "🍴" },
   ];
+
+  let safetyMode = "home"; // synced via Firebase so everyone sees the same
+  const modeRef = ref(db, "loza-lounge/safetyMode");
 
   const app      = initializeApp(firebaseConfig);
   const db       = getDatabase(app);
@@ -85,16 +88,17 @@
     const order = { red:0, amber:1, green:2 };
     entries.sort(([,a],[,b]) => {
       if (a.eaten !== b.eaten) return a.eaten ? 1 : -1;
-      const fa = FOOD_TYPES.find(f=>f.value===a.type)||{days:4};
-      const fb = FOOD_TYPES.find(f=>f.value===b.type)||{days:4};
-      return order[getUrgency(a.createdAt,fa.days).level] - order[getUrgency(b.createdAt,fb.days).level];
+      const fa = FOOD_TYPES.find(f=>f.value===a.type)||{strict:4,home:5};
+      const fb = FOOD_TYPES.find(f=>f.value===b.type)||{strict:4,home:5};
+      return order[getUrgency(a.createdAt,fa[safetyMode]).level] - order[getUrgency(b.createdAt,fb[safetyMode]).level];
     });
 
     container.innerHTML = "";
     entries.forEach(([id, item], i) => {
-      const ft  = FOOD_TYPES.find(f=>f.value===item.type)||{days:4,icon:"🍴",label:"Other"};
-      const urg = getUrgency(item.createdAt, ft.days);
+      const ft  = FOOD_TYPES.find(f=>f.value===item.type)||{strict:4,home:5,icon:"🍴",label:"Other"};
+      const urg = getUrgency(item.createdAt, ft[safetyMode]);
       const daysLabel = urg.daysOld===0 ? "Added today" : `${urg.daysOld} day${urg.daysOld!==1?"s":""} old`;
+      const shelfDays = ft[safetyMode];
 
       const el = document.createElement("div");
       el.className = `item ${urg.level}${item.eaten?" eaten":""}`;
@@ -108,7 +112,7 @@
           </div>
           ${item.description ? `<div class="item-contents">${item.description}</div>` : ""}
           ${item.note ? `<div class="item-note">📝 ${item.note}</div>` : ""}
-          <div class="item-meta">${ft.label} &middot; Good for ${ft.days} days &middot; ${weekLabel(item.createdAt)}</div>
+          <div class="item-meta">${ft.label} &middot; Good for ${shelfDays} days &middot; ${weekLabel(item.createdAt)}</div>
         </div>
         <div class="item-right">
           <span class="badge">${urg.emoji} ${urg.label}</span>
@@ -202,6 +206,16 @@
   }
 
   // ── LIVE LISTENER ─────────────────────────────────────────────────
+  onValue(modeRef, snap => {
+    safetyMode = snap.val() || "home";
+    const btn = document.getElementById("toggle-mode");
+    if (btn) {
+      btn.textContent = safetyMode === "home" ? "🏠 Home" : "🏥 Strict";
+      btn.classList.toggle("mode-strict", safetyMode === "strict");
+    }
+    renderItems();
+  });
+
   onValue(itemsRef, snap => {
     allItems = snap.val() || {};
     renderItems();
@@ -225,6 +239,10 @@
     });
 
     // add item toggle
+    document.getElementById("toggle-mode").addEventListener("click", () => {
+      set(modeRef, safetyMode === "home" ? "strict" : "home");
+    });
+
     document.getElementById("toggle-add").addEventListener("click", () => {
       const form = document.getElementById("add-form");
       const open = form.classList.toggle("open");
@@ -302,6 +320,7 @@
   .btn-primary:hover { background:#3b3530; }
   .btn-ghost { background:transparent; color:#6b5e52; border:1.5px solid var(--border); }
   .btn-ghost:hover { background:var(--border); }
+  .mode-strict { border-color:#f5c6c0 !important; color:var(--red) !important; background:var(--red-badge) !important; }
 
   /* ADD FORM */
   #add-form { max-height:0; overflow:hidden; transition:max-height 0.3s ease; background:#faf7f3; border-bottom:1px solid var(--border); }
@@ -393,6 +412,7 @@
 
   <div class="toolbar">
     <button class="btn btn-primary" id="toggle-add">+ Add Item</button>
+    <button class="btn btn-ghost" id="toggle-mode">🏠 Home</button>
     <button class="btn btn-ghost" id="toggle-eaten">Show eaten</button>
     <button class="btn btn-ghost" id="btn-print">🖨 Print</button>
   </div>
