@@ -3,16 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🍽 Leftover Tracker</title>
+<title>🍽 Loza Lounge</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 
-<!-- ============================================================
-  FIREBASE CONFIG — paste your values from Firebase Console here
-  See SETUP.md for step-by-step instructions
-============================================================ -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, onValue, update, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getDatabase, ref, onValue, update, push, set, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
   const firebaseConfig = {
     apiKey:            "AIzaSyB7ujf5KvLqMQY5aRZnvrJRAApVH9STDfk",
@@ -24,396 +20,401 @@
     appId:             "1:44554676568:web:035bcd8f5f95999474dd2d"
   };
 
-  const app = initializeApp(firebaseConfig);
-  const db  = getDatabase(app);
-
-  // ── WEEK KEY — change this every week so each week starts fresh ──
-  const WEEK = "2026-04-17";
-  const weekRef = ref(db, `leftovers/${WEEK}`);
-
-  // ── ITEMS DATA — edit this array each week ───────────────────────
-  const ITEMS = [
-    {
-      id: "pulled-pork",
-      urgency: "red",
-      icon: "🥩",
-      name: "Pulled Pork",
-      note: "Tacos, sandwiches, or hash — do a smell check first",
-      age: "5 days old · Apr 12",
-      label: "Eat Today"
-    },
-    {
-      id: "ribs",
-      urgency: "red",
-      icon: "🍖",
-      name: "Half Rack of Ribs",
-      note: "Reheat at 250°F covered in foil with a splash of water",
-      age: "4 days old · Apr 13",
-      label: "Eat Today"
-    },
-    {
-      id: "brisket",
-      urgency: "amber",
-      icon: "🥪",
-      name: "Brisket Sandwich",
-      note: "1 sandwich — keep components separate if possible",
-      age: "3 days old · Apr 14",
-      label: "Eat Soon"
-    },
-    {
-      id: "breakfast-burrito",
-      urgency: "amber",
-      icon: "🌯",
-      name: "Breakfast Burrito Fillings",
-      note: "Chorizo · Eggs · Potatoes · Caramelized onions · Bacon",
-      age: "2 days old · Apr 15",
-      label: "Eat Soon"
-    },
-    {
-      id: "chicken-pesto",
-      urgency: "green",
-      icon: "🍗",
-      name: "Chicken Pesto",
-      note: "Over pasta, grain bowl, or flatbread — peak flavor right now",
-      age: "1 day old · Apr 16",
-      label: "Still Good"
-    },
-    {
-      id: "fresh-fruit",
-      urgency: "red",
-      icon: "🍓",
-      name: "Fresh Mixed Fruit",
-      note: "Strawberries · Raspberries · Blueberries — smoothie or yogurt",
-      age: "Picked fresh",
-      label: "Eat ASAP"
-    }
+  const FOOD_TYPES = [
+    { value: "red-meat",    label: "Red Meat (cooked)",   days: 4, icon: "🥩" },
+    { value: "poultry",     label: "Poultry (cooked)",    days: 4, icon: "🍗" },
+    { value: "seafood",     label: "Seafood (cooked)",    days: 2, icon: "🐟" },
+    { value: "pizza",       label: "Pizza",               days: 4, icon: "🍕" },
+    { value: "soup-stew",   label: "Soup / Stew",         days: 4, icon: "🍲" },
+    { value: "rice-grains", label: "Rice / Grains",       days: 5, icon: "🍚" },
+    { value: "eggs-dairy",  label: "Egg / Dairy Dish",    days: 4, icon: "🥚" },
+    { value: "salad",       label: "Salad / Greens",      days: 2, icon: "🥗" },
+    { value: "produce",     label: "Fresh Produce",       days: 3, icon: "🍓" },
+    { value: "baked",       label: "Baked Goods",         days: 5, icon: "🥧" },
+    { value: "mixed",       label: "Mixed Dish",          days: 4, icon: "🌯" },
+    { value: "other",       label: "Other",               days: 4, icon: "🍴" },
   ];
 
-  // ── RENDER ────────────────────────────────────────────────────────
-  function renderItems(snapshot) {
-    const saved = snapshot.val() || {};
-    const container = document.getElementById("items");
-    container.innerHTML = "";
+  const app      = initializeApp(firebaseConfig);
+  const db       = getDatabase(app);
+  const itemsRef = ref(db, "loza-lounge/items");
 
-    ITEMS.forEach((item, i) => {
-      const eaten = saved[item.id]?.eaten || false;
-      const urgencyEmoji = { red: "🔴", amber: "🟡", green: "🟢" }[item.urgency];
+  // ── WEEK HELPERS ─────────────────────────────────────────────────
+  function getWeekStart(ts) {
+    const d = new Date(ts);
+    d.setHours(0,0,0,0);
+    d.setDate(d.getDate() - d.getDay()); // back to Sunday
+    return d.getTime();
+  }
+
+  function weekLabel(ts) {
+    const d = new Date(getWeekStart(ts));
+    return `Week of ${d.toLocaleDateString("en-US", { month:"short", day:"numeric" })}`;
+  }
+
+  // ── URGENCY ───────────────────────────────────────────────────────
+  function getUrgency(createdAt, shelfDays) {
+    const daysOld = (Date.now() - createdAt) / 86400000;
+    const ratio   = daysOld / shelfDays;
+    if (ratio >= 1)   return { level:"red",   label:"Eat Today",  emoji:"🔴", daysOld: Math.floor(daysOld) };
+    if (ratio >= 0.6) return { level:"amber", label:"Eat Soon",   emoji:"🟡", daysOld: Math.floor(daysOld) };
+    return               { level:"green", label:"Still Good", emoji:"🟢", daysOld: Math.floor(daysOld) };
+  }
+
+  let allItems   = {};
+  let showEaten  = false;
+  let activeWeek = ""; // "" = all weeks
+
+  // ── RENDER ITEMS ─────────────────────────────────────────────────
+  function renderItems() {
+    const container = document.getElementById("items");
+    let entries = Object.entries(allItems);
+
+    // week filter
+    if (activeWeek) {
+      entries = entries.filter(([,v]) => getWeekStart(v.createdAt) === parseInt(activeWeek));
+    }
+
+    if (!showEaten) entries = entries.filter(([,v]) => !v.eaten);
+
+    if (entries.length === 0) {
+      container.innerHTML = '<div class="empty">No items for this filter 🎉</div>';
+      return;
+    }
+
+    const order = { red:0, amber:1, green:2 };
+    entries.sort(([,a],[,b]) => {
+      if (a.eaten !== b.eaten) return a.eaten ? 1 : -1;
+      const fa = FOOD_TYPES.find(f=>f.value===a.type)||{days:4};
+      const fb = FOOD_TYPES.find(f=>f.value===b.type)||{days:4};
+      return order[getUrgency(a.createdAt,fa.days).level] - order[getUrgency(b.createdAt,fb.days).level];
+    });
+
+    container.innerHTML = "";
+    entries.forEach(([id, item], i) => {
+      const ft  = FOOD_TYPES.find(f=>f.value===item.type)||{days:4,icon:"🍴",label:"Other"};
+      const urg = getUrgency(item.createdAt, ft.days);
+      const daysLabel = urg.daysOld===0 ? "Added today" : `${urg.daysOld} day${urg.daysOld!==1?"s":""} old`;
 
       const el = document.createElement("div");
-      el.className = `item ${item.urgency}${eaten ? " eaten" : ""}`;
-      el.style.animationDelay = `${i * 0.06}s`;
+      el.className = `item ${urg.level}${item.eaten?" eaten":""}`;
+      el.style.animationDelay = `${i*0.05}s`;
+      el.dataset.id = id;
       el.innerHTML = `
         <div class="item-left">
           <div class="item-name">
-            <input type="checkbox" id="cb-${item.id}" ${eaten ? "checked" : ""}>
-            <label for="cb-${item.id}">${item.icon} ${item.name}</label>
+            <input type="checkbox" id="cb-${id}" ${item.eaten?"checked":""}>
+            <label for="cb-${id}">${ft.icon} ${item.name}</label>
           </div>
-          <div class="item-contents">${item.note}</div>
+          ${item.description ? `<div class="item-contents">${item.description}</div>` : ""}
+          ${item.note ? `<div class="item-note">📝 ${item.note}</div>` : ""}
+          <div class="item-meta">${ft.label} &middot; Good for ${ft.days} days &middot; ${weekLabel(item.createdAt)}</div>
         </div>
         <div class="item-right">
-          <span class="badge">${urgencyEmoji} ${item.label}</span>
-          <span class="age">${item.age}</span>
+          <span class="badge">${urg.emoji} ${urg.label}</span>
+          <span class="age">${daysLabel}</span>
+          <button class="btn-delete" data-id="${id}">&#x2715;</button>
         </div>
       `;
 
-      el.querySelector("input").addEventListener("change", (e) => {
-        update(ref(db, `leftovers/${WEEK}/${item.id}`), { eaten: e.target.checked });
+      el.querySelector("input").addEventListener("change", e => {
+        update(ref(db,`loza-lounge/items/${id}`), { eaten: e.target.checked });
+      });
+      el.querySelector(".btn-delete").addEventListener("click", () => {
+        if (confirm(`Remove "${item.name}"?`)) remove(ref(db,`loza-lounge/items/${id}`));
       });
 
       container.appendChild(el);
     });
   }
 
-  // ── NOTES SYNC ────────────────────────────────────────────────────
-  function initNotes(snapshot) {
-    const saved = snapshot.val() || {};
-    const notesEl = document.getElementById("notes");
-    notesEl.value = saved._notes || "";
+  // ── WEEK DROPDOWN ─────────────────────────────────────────────────
+  function rebuildWeekDropdown() {
+    const sel = document.getElementById("week-filter");
+    const prev = sel.value;
 
-    let timeout;
-    notesEl.addEventListener("input", () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        update(weekRef, { _notes: notesEl.value });
-      }, 600);
+    // collect unique week starts
+    const weeks = {};
+    Object.values(allItems).forEach(item => {
+      const ws = getWeekStart(item.createdAt);
+      weeks[ws] = weekLabel(item.createdAt);
     });
+
+    sel.innerHTML = '<option value="">All weeks</option>';
+    Object.entries(weeks)
+      .sort(([a],[b]) => b - a) // newest first
+      .forEach(([ws, label]) => {
+        const opt = document.createElement("option");
+        opt.value = ws;
+        opt.textContent = label;
+        sel.appendChild(opt);
+      });
+
+    if (prev && weeks[prev]) sel.value = prev;
+    else sel.value = "";
+  }
+
+  // ── NOTES ITEM DROPDOWN ───────────────────────────────────────────
+  function rebuildNotesDropdown() {
+    const sel = document.getElementById("note-item-select");
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— Select an item —</option>';
+    Object.entries(allItems)
+      .filter(([,v]) => !v.eaten)
+      .sort(([,a],[,b]) => b.createdAt - a.createdAt)
+      .forEach(([id, item]) => {
+        const ft = FOOD_TYPES.find(f=>f.value===item.type)||{icon:"🍴"};
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = `${ft.icon} ${item.name}`;
+        sel.appendChild(opt);
+      });
+    if (prev) sel.value = prev;
+
+    // load existing note if selection still valid
+    if (sel.value && allItems[sel.value]) {
+      document.getElementById("note-text").value = allItems[sel.value].note || "";
+    }
+  }
+
+  // ── ADD ITEM ─────────────────────────────────────────────────────
+  function addItem() {
+    const nameEl = document.getElementById("new-name");
+    const typeEl = document.getElementById("new-type");
+    const descEl = document.getElementById("new-desc");
+    const name   = nameEl.value.trim();
+    if (!name) { nameEl.focus(); return; }
+    push(itemsRef, { name, type: typeEl.value, description: descEl.value.trim(), createdAt: Date.now(), eaten: false, note: "" });
+    nameEl.value = ""; descEl.value = "";
+    document.getElementById("add-form").classList.remove("open");
+    document.getElementById("toggle-add").textContent = "+ Add Item";
+  }
+
+  // ── SAVE NOTE TO ITEM ─────────────────────────────────────────────
+  function saveNote() {
+    const id   = document.getElementById("note-item-select").value;
+    const text = document.getElementById("note-text").value.trim();
+    if (!id) { document.getElementById("note-item-select").focus(); return; }
+    update(ref(db,`loza-lounge/items/${id}`), { note: text });
+    const s = document.getElementById("notes-status");
+    s.textContent = "Saved ✓";
+    setTimeout(() => s.textContent = "", 2000);
   }
 
   // ── LIVE LISTENER ─────────────────────────────────────────────────
-  let notesInited = false;
-  onValue(weekRef, (snapshot) => {
-    renderItems(snapshot);
-    if (!notesInited) {
-      initNotes(snapshot);
-      notesInited = true;
-      document.getElementById("status").textContent = "🟢 Live — syncing with everyone";
-    }
+  onValue(itemsRef, snap => {
+    allItems = snap.val() || {};
+    renderItems();
+    rebuildWeekDropdown();
+    rebuildNotesDropdown();
+    const total = Object.keys(allItems).length;
+    const eaten = Object.values(allItems).filter(v=>v.eaten).length;
+    document.getElementById("count").textContent = `${total-eaten} active · ${eaten} eaten`;
+    document.getElementById("status").textContent = "🟢 Live";
   });
 
-  // expose for print button
-  window._weekRef = weekRef;
+  // ── DOM READY ─────────────────────────────────────────────────────
+  window.addEventListener("DOMContentLoaded", () => {
+    // populate food type dropdown
+    const sel = document.getElementById("new-type");
+    FOOD_TYPES.forEach(ft => {
+      const opt = document.createElement("option");
+      opt.value = ft.value;
+      opt.textContent = `${ft.icon} ${ft.label} (${ft.days} days)`;
+      sel.appendChild(opt);
+    });
+
+    // add item toggle
+    document.getElementById("toggle-add").addEventListener("click", () => {
+      const form = document.getElementById("add-form");
+      const open = form.classList.toggle("open");
+      document.getElementById("toggle-add").textContent = open ? "✕ Cancel" : "+ Add Item";
+      if (open) document.getElementById("new-name").focus();
+    });
+
+    document.getElementById("btn-add-submit").addEventListener("click", addItem);
+    document.getElementById("new-name").addEventListener("keydown", e => { if(e.key==="Enter") addItem(); });
+
+    // show/hide eaten
+    document.getElementById("toggle-eaten").addEventListener("click", () => {
+      showEaten = !showEaten;
+      document.getElementById("toggle-eaten").textContent = showEaten ? "Hide eaten" : "Show eaten";
+      renderItems();
+    });
+
+    // week filter
+    document.getElementById("week-filter").addEventListener("change", e => {
+      activeWeek = e.target.value;
+      renderItems();
+    });
+
+    // notes
+    document.getElementById("note-item-select").addEventListener("change", e => {
+      const id = e.target.value;
+      document.getElementById("note-text").value = id && allItems[id] ? (allItems[id].note || "") : "";
+    });
+    document.getElementById("btn-save-notes").addEventListener("click", saveNote);
+    document.getElementById("btn-print").addEventListener("click", () => window.print());
+  });
 </script>
 
 <style>
   :root {
-    --cream: #fdf6ec;
-    --warm-dark: #1e1a16;
-    --red: #c0392b;
-    --amber: #d97706;
-    --green: #2d6a4f;
-    --red-bg: #fdf0ee;
-    --amber-bg: #fffbeb;
-    --green-bg: #f0faf5;
-    --red-badge: #fee2e2;
-    --amber-badge: #fef3c7;
-    --green-badge: #d1fae5;
-    --border: #e8ddd0;
+    --cream:#fdf6ec; --warm-dark:#1e1a16;
+    --red:#c0392b; --amber:#d97706; --green:#2d6a4f;
+    --red-bg:#fdf0ee; --amber-bg:#fffbeb; --green-bg:#f0faf5;
+    --red-badge:#fee2e2; --amber-badge:#fef3c7; --green-badge:#d1fae5;
+    --border:#e8ddd0;
   }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'DM Sans',sans-serif; background:var(--cream); color:var(--warm-dark); min-height:100vh; padding:32px 20px; }
+  .page { max-width:720px; margin:0 auto; background:#fff; border-radius:16px; box-shadow:0 4px 40px rgba(0,0,0,0.08); overflow:hidden; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* HEADER */
+  header { background:var(--warm-dark); padding:26px 36px 22px; display:flex; justify-content:space-between; align-items:flex-end; gap:16px; }
+  header h1 { font-family:'Playfair Display',serif; font-size:1.9rem; color:#fff; line-height:1; flex-shrink:0; }
+  header h1 span { display:block; font-family:'DM Sans',sans-serif; font-size:0.67rem; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#a89880; margin-bottom:5px; }
+  .header-right { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+  #status { font-size:0.72rem; font-weight:600; color:#a89880; }
+  #count { font-size:0.72rem; color:#7a6a5a; background:rgba(255,255,255,0.08); padding:3px 10px; border-radius:20px; white-space:nowrap; }
 
-  body {
-    font-family: 'DM Sans', sans-serif;
-    background: var(--cream);
-    color: var(--warm-dark);
-    min-height: 100vh;
-    padding: 32px 20px;
+  /* WEEK FILTER */
+  #week-filter {
+    font-family:'DM Sans',sans-serif;
+    font-size:0.75rem;
+    font-weight:600;
+    background:rgba(255,255,255,0.1);
+    color:#fff;
+    border:1.5px solid rgba(255,255,255,0.2);
+    border-radius:7px;
+    padding:5px 10px;
+    cursor:pointer;
+    outline:none;
+    max-width:160px;
   }
+  #week-filter option { background:#1e1a16; color:#fff; }
+  #week-filter:focus { border-color:rgba(255,255,255,0.4); }
 
-  .page {
-    max-width: 720px;
-    margin: 0 auto;
-    background: #fff;
-    border-radius: 16px;
-    box-shadow: 0 4px 40px rgba(0,0,0,0.08);
-    overflow: hidden;
+  /* TOOLBAR */
+  .toolbar { display:flex; gap:10px; padding:13px 36px; background:#f9f4ef; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .btn { font-family:'DM Sans',sans-serif; font-size:0.75rem; font-weight:600; letter-spacing:0.05em; padding:7px 16px; border-radius:6px; border:none; cursor:pointer; transition:background 0.15s; }
+  .btn-primary { background:var(--warm-dark); color:#fff; }
+  .btn-primary:hover { background:#3b3530; }
+  .btn-ghost { background:transparent; color:#6b5e52; border:1.5px solid var(--border); }
+  .btn-ghost:hover { background:var(--border); }
+
+  /* ADD FORM */
+  #add-form { max-height:0; overflow:hidden; transition:max-height 0.3s ease; background:#faf7f3; border-bottom:1px solid var(--border); }
+  #add-form.open { max-height:320px; padding:20px 36px; }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+  .form-field { display:flex; flex-direction:column; gap:5px; }
+  .form-field label { font-size:0.67rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#9c8b7e; }
+  .form-field input,.form-field select,.form-field textarea { font-family:'DM Sans',sans-serif; font-size:0.88rem; padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; background:#fff; color:var(--warm-dark); outline:none; }
+  .form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:#a89880; }
+  .form-field textarea { resize:none; height:56px; }
+  .form-actions { margin-top:4px; }
+
+  /* LEGEND */
+  .legend { display:flex; gap:20px; padding:10px 36px; background:#f9f4ef; border-bottom:1px solid var(--border); font-size:0.7rem; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; }
+  .legend-item { display:flex; align-items:center; gap:6px; }
+  .dot { width:9px; height:9px; border-radius:50%; }
+  .dot.red{background:var(--red);} .dot.amber{background:var(--amber);} .dot.green{background:var(--green);}
+
+  /* ITEMS */
+  .items { padding:20px 36px; display:flex; flex-direction:column; gap:12px; min-height:80px; }
+  .empty { text-align:center; padding:40px; color:#9c8b7e; font-size:0.9rem; }
+  .item { border-radius:10px; padding:14px 18px; display:grid; grid-template-columns:1fr auto; align-items:start; gap:12px; border:1.5px solid transparent; transition:opacity 0.3s,box-shadow 0.2s; animation:fadeUp 0.3s ease both; }
+  .item:hover { box-shadow:0 2px 12px rgba(0,0,0,0.07); }
+  .item.red   { background:var(--red-bg);   border-color:#f5c6c0; }
+  .item.amber { background:var(--amber-bg); border-color:#fde68a; }
+  .item.green { background:var(--green-bg); border-color:#a7f3d0; }
+  .item.eaten { opacity:0.35; }
+  .item.eaten .item-name label { text-decoration:line-through; }
+  .item-left { display:flex; flex-direction:column; gap:4px; }
+  .item-name { font-size:1rem; font-weight:600; display:flex; align-items:center; gap:8px; }
+  .item-name input[type="checkbox"] { width:15px; height:15px; accent-color:var(--warm-dark); cursor:pointer; flex-shrink:0; }
+  .item-name label { cursor:pointer; }
+  .item-contents { font-size:0.8rem; color:#6b5e52; line-height:1.4; }
+  .item-note { font-size:0.78rem; color:#7a6a5a; font-style:italic; line-height:1.4; }
+  .item-meta { font-size:0.7rem; color:#b0a090; }
+  .item-right { display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
+  .badge { font-size:0.63rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; padding:3px 10px; border-radius:20px; white-space:nowrap; }
+  .item.red   .badge { background:var(--red-badge);   color:var(--red); }
+  .item.amber .badge { background:var(--amber-badge); color:#92400e; }
+  .item.green .badge { background:var(--green-badge); color:var(--green); }
+  .age { font-size:0.7rem; color:#9c8b7e; white-space:nowrap; }
+  .btn-delete { background:none; border:none; font-size:0.7rem; color:#c0b0a0; cursor:pointer; padding:2px 5px; border-radius:4px; transition:color 0.15s,background 0.15s; }
+  .btn-delete:hover { color:var(--red); background:var(--red-badge); }
+
+  /* NOTES */
+  .notes-section { padding:0 36px 24px; }
+  .notes-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .notes-label { font-size:0.7rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#9c8b7e; }
+  .notes-actions { display:flex; align-items:center; gap:10px; }
+  #notes-status { font-size:0.7rem; color:var(--green); font-weight:600; min-width:50px; }
+  .note-row { display:grid; grid-template-columns:1fr; gap:10px; }
+  #note-item-select { font-family:'DM Sans',sans-serif; font-size:0.85rem; padding:8px 12px; border:1.5px solid var(--border); border-radius:8px; background:#fafaf8; color:var(--warm-dark); outline:none; width:100%; margin-bottom:8px; }
+  #note-item-select:focus { border-color:#a89880; }
+  textarea#note-text { width:100%; min-height:70px; border:1.5px solid var(--border); border-radius:8px; padding:10px 14px; font-family:'DM Sans',sans-serif; font-size:0.85rem; color:var(--warm-dark); resize:vertical; background:#fafaf8; outline:none; }
+  textarea#note-text:focus { border-color:#a89880; }
+  .note-save-row { display:flex; justify-content:flex-end; margin-top:8px; align-items:center; gap:12px; }
+
+  footer { border-top:1px solid var(--border); padding:12px 36px; display:flex; justify-content:space-between; font-size:0.7rem; color:#b0a090; }
+
+  @keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+  @media(max-width:520px){
+    header,.toolbar,.items,.notes-section,footer,.legend{padding-left:18px;padding-right:18px;}
+    #add-form.open{padding:16px 18px;}
+    header{flex-direction:column;align-items:flex-start;gap:12px;}
+    .header-right{align-items:flex-start;}
+    header h1{font-size:1.4rem;}
+    .form-row{grid-template-columns:1fr;}
+    .item{grid-template-columns:1fr;}
   }
-
-  header {
-    background: var(--warm-dark);
-    padding: 28px 36px 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-  }
-
-  header h1 {
-    font-family: 'Playfair Display', serif;
-    font-size: 2rem;
-    color: #fff;
-    line-height: 1;
-  }
-
-  header h1 span {
-    display: block;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.7rem;
-    font-weight: 500;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #a89880;
-    margin-bottom: 4px;
-  }
-
-  .date-badge {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #a89880;
-    letter-spacing: 0.05em;
-    text-align: right;
-  }
-
-  .date-badge .week {
-    display: block;
-    font-size: 1rem;
-    color: #fff;
-    font-weight: 400;
-    font-family: 'Playfair Display', serif;
-    margin-top: 2px;
-  }
-
-  .status-bar {
-    background: #f9f4ef;
-    border-bottom: 1px solid var(--border);
-    padding: 8px 36px;
-    font-size: 0.72rem;
-    color: #6b5e52;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-  }
-
-  #status { font-weight: 600; }
-
-  .legend {
-    display: flex;
-    gap: 20px;
-    padding: 12px 36px;
-    background: #f9f4ef;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-  .legend-item { display: flex; align-items: center; gap: 6px; }
-
-  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .dot.red   { background: var(--red); }
-  .dot.amber { background: var(--amber); }
-  .dot.green { background: var(--green); }
-
-  .items { padding: 24px 36px; display: flex; flex-direction: column; gap: 14px; }
-
-  .item {
-    border-radius: 10px;
-    padding: 16px 20px;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: start;
-    gap: 12px;
-    border: 1.5px solid transparent;
-    transition: box-shadow 0.2s, opacity 0.3s;
-    animation: fadeUp 0.35s ease both;
-  }
-
-  .item:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-  .item.red   { background: var(--red-bg);   border-color: #f5c6c0; }
-  .item.amber { background: var(--amber-bg); border-color: #fde68a; }
-  .item.green { background: var(--green-bg); border-color: #a7f3d0; }
-  .item.eaten { opacity: 0.38; }
-  .item.eaten .item-name label { text-decoration: line-through; }
-
-  .item-left { display: flex; flex-direction: column; gap: 5px; }
-
-  .item-name {
-    font-size: 1rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .item-name input[type="checkbox"] {
-    width: 16px; height: 16px;
-    accent-color: var(--warm-dark);
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .item-name label { cursor: pointer; }
-
-  .item-contents { font-size: 0.8rem; color: #6b5e52; line-height: 1.5; }
-
-  .item-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-
-  .badge {
-    font-size: 0.65rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 3px 10px;
-    border-radius: 20px;
-    white-space: nowrap;
-  }
-
-  .item.red   .badge { background: var(--red-badge);   color: var(--red); }
-  .item.amber .badge { background: var(--amber-badge); color: #92400e; }
-  .item.green .badge { background: var(--green-badge); color: var(--green); }
-
-  .age { font-size: 0.72rem; color: #9c8b7e; white-space: nowrap; }
-
-  .notes-section { padding: 0 36px 24px; }
-
-  .notes-label {
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #9c8b7e;
-    margin-bottom: 8px;
-  }
-
-  textarea#notes {
-    width: 100%;
-    min-height: 60px;
-    border: 1.5px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.85rem;
-    color: var(--warm-dark);
-    resize: vertical;
-    background: #fafaf8;
-    outline: none;
-  }
-
-  textarea#notes:focus { border-color: #a89880; }
-
-  footer {
-    border-top: 1px solid var(--border);
-    padding: 14px 36px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.7rem;
-    color: #b0a090;
-  }
-
-  .btn-print {
-    background: var(--warm-dark);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 6px 16px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    cursor: pointer;
-    text-transform: uppercase;
-  }
-
-  .btn-print:hover { background: #3b3530; }
-
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  @media print {
-    body { background: white; padding: 0; }
-    .page { box-shadow: none; border-radius: 0; }
-    .btn-print, .status-bar { display: none; }
-  }
-
-  @media (max-width: 480px) {
-    header, .items, .notes-section, footer, .legend, .status-bar { padding-left: 20px; padding-right: 20px; }
-    header h1 { font-size: 1.5rem; }
-    .item { grid-template-columns: 1fr; }
-    .item-right { flex-direction: row; align-items: center; justify-content: flex-start; }
+  @media print{
+    body{background:white;padding:0;}
+    .page{box-shadow:none;border-radius:0;}
+    .toolbar,#add-form,.btn-delete,.notes-section{display:none!important;}
+    .item.eaten{display:none;}
   }
 </style>
 </head>
 <body>
 <div class="page">
-
   <header>
-    <h1>
-      <span>Weekly</span>
-      Leftover Tracker
-    </h1>
-    <div class="date-badge">
-      Week of
-      <span class="week">April 17, 2026</span>
+    <h1><span>Loza Lounge</span>Leftover Tracker</h1>
+    <div class="header-right">
+      <span id="status">⏳ Connecting…</span>
+      <span id="count"></span>
+      <select id="week-filter"><option value="">All weeks</option></select>
     </div>
   </header>
 
-  <div class="status-bar">
-    <span id="status">⏳ Connecting…</span>
-    <span>Shared · everyone sees the same board</span>
+  <div class="toolbar">
+    <button class="btn btn-primary" id="toggle-add">+ Add Item</button>
+    <button class="btn btn-ghost" id="toggle-eaten">Show eaten</button>
+    <button class="btn btn-ghost" id="btn-print">🖨 Print</button>
+  </div>
+
+  <div id="add-form">
+    <div class="form-row">
+      <div class="form-field">
+        <label>Dish Name</label>
+        <input type="text" id="new-name" placeholder="e.g. Pulled Pork">
+      </div>
+      <div class="form-field">
+        <label>Food Type</label>
+        <select id="new-type"></select>
+      </div>
+    </div>
+    <div class="form-field" style="margin-bottom:12px;">
+      <label>Description (optional)</label>
+      <textarea id="new-desc" placeholder="Where it is, how to reheat, who it belongs to…"></textarea>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" id="btn-add-submit">Add to Fridge</button>
+    </div>
   </div>
 
   <div class="legend">
@@ -422,22 +423,24 @@
     <div class="legend-item"><div class="dot green"></div> Still Good</div>
   </div>
 
-  <div class="items" id="items">
-    <div style="padding:40px; text-align:center; color:#9c8b7e; font-size:0.85rem;">
-      Connecting to database…
+  <div class="items" id="items"><div class="empty">Connecting…</div></div>
+
+  <div class="notes-section">
+    <div class="notes-header">
+      <span class="notes-label">Item Notes</span>
+      <span id="notes-status"></span>
+    </div>
+    <select id="note-item-select"><option value="">— Select an item to add a note —</option></select>
+    <textarea id="note-text" placeholder="Reheating tips, who called dibs, storage location…"></textarea>
+    <div class="note-save-row">
+      <button class="btn btn-primary" id="btn-save-notes">Save Note</button>
     </div>
   </div>
 
-  <div class="notes-section">
-    <div class="notes-label">Notes</div>
-    <textarea id="notes" placeholder="Meal ideas, who called dibs, anything…"></textarea>
-  </div>
-
   <footer>
-    <span>✓ Check off items as they're eaten — syncs for everyone</span>
-    <button class="btn-print" onclick="window.print()">🖨 Print</button>
+    <span>Syncs live for everyone</span>
+    <span>Loza Lounge 🔥</span>
   </footer>
-
 </div>
 </body>
 </html>
