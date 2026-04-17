@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🍽 Leftover Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<!-- ============================================================
+  FIREBASE CONFIG — paste your values from Firebase Console here
+  See SETUP.md for step-by-step instructions
+============================================================ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, onValue, update, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyB7ujf5KvLqMQY5aRZnvrJRAApVH9STDfk",
+    authDomain:        "loza-lounge-leftovers.firebaseapp.com",
+    databaseURL:       "https://loza-lounge-leftovers-default-rtdb.firebaseio.com",
+    projectId:         "loza-lounge-leftovers",
+    storageBucket:     "loza-lounge-leftovers.firebasestorage.app",
+    messagingSenderId: "44554676568",
+    appId:             "1:44554676568:web:035bcd8f5f95999474dd2d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+
+  // ── WEEK KEY — change this every week so each week starts fresh ──
+  const WEEK = "2026-04-17";
+  const weekRef = ref(db, `leftovers/${WEEK}`);
+
+  // ── ITEMS DATA — edit this array each week ───────────────────────
+  const ITEMS = [
+    {
+      id: "pulled-pork",
+      urgency: "red",
+      icon: "🥩",
+      name: "Pulled Pork",
+      note: "Tacos, sandwiches, or hash — do a smell check first",
+      age: "5 days old · Apr 12",
+      label: "Eat Today"
+    },
+    {
+      id: "ribs",
+      urgency: "red",
+      icon: "🍖",
+      name: "Half Rack of Ribs",
+      note: "Reheat at 250°F covered in foil with a splash of water",
+      age: "4 days old · Apr 13",
+      label: "Eat Today"
+    },
+    {
+      id: "brisket",
+      urgency: "amber",
+      icon: "🥪",
+      name: "Brisket Sandwich",
+      note: "1 sandwich — keep components separate if possible",
+      age: "3 days old · Apr 14",
+      label: "Eat Soon"
+    },
+    {
+      id: "breakfast-burrito",
+      urgency: "amber",
+      icon: "🌯",
+      name: "Breakfast Burrito Fillings",
+      note: "Chorizo · Eggs · Potatoes · Caramelized onions · Bacon",
+      age: "2 days old · Apr 15",
+      label: "Eat Soon"
+    },
+    {
+      id: "chicken-pesto",
+      urgency: "green",
+      icon: "🍗",
+      name: "Chicken Pesto",
+      note: "Over pasta, grain bowl, or flatbread — peak flavor right now",
+      age: "1 day old · Apr 16",
+      label: "Still Good"
+    },
+    {
+      id: "fresh-fruit",
+      urgency: "red",
+      icon: "🍓",
+      name: "Fresh Mixed Fruit",
+      note: "Strawberries · Raspberries · Blueberries — smoothie or yogurt",
+      age: "Picked fresh",
+      label: "Eat ASAP"
+    }
+  ];
+
+  // ── RENDER ────────────────────────────────────────────────────────
+  function renderItems(snapshot) {
+    const saved = snapshot.val() || {};
+    const container = document.getElementById("items");
+    container.innerHTML = "";
+
+    ITEMS.forEach((item, i) => {
+      const eaten = saved[item.id]?.eaten || false;
+      const urgencyEmoji = { red: "🔴", amber: "🟡", green: "🟢" }[item.urgency];
+
+      const el = document.createElement("div");
+      el.className = `item ${item.urgency}${eaten ? " eaten" : ""}`;
+      el.style.animationDelay = `${i * 0.06}s`;
+      el.innerHTML = `
+        <div class="item-left">
+          <div class="item-name">
+            <input type="checkbox" id="cb-${item.id}" ${eaten ? "checked" : ""}>
+            <label for="cb-${item.id}">${item.icon} ${item.name}</label>
+          </div>
+          <div class="item-contents">${item.note}</div>
+        </div>
+        <div class="item-right">
+          <span class="badge">${urgencyEmoji} ${item.label}</span>
+          <span class="age">${item.age}</span>
+        </div>
+      `;
+
+      el.querySelector("input").addEventListener("change", (e) => {
+        update(ref(db, `leftovers/${WEEK}/${item.id}`), { eaten: e.target.checked });
+      });
+
+      container.appendChild(el);
+    });
+  }
+
+  // ── NOTES SYNC ────────────────────────────────────────────────────
+  function initNotes(snapshot) {
+    const saved = snapshot.val() || {};
+    const notesEl = document.getElementById("notes");
+    notesEl.value = saved._notes || "";
+
+    let timeout;
+    notesEl.addEventListener("input", () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        update(weekRef, { _notes: notesEl.value });
+      }, 600);
+    });
+  }
+
+  // ── LIVE LISTENER ─────────────────────────────────────────────────
+  let notesInited = false;
+  onValue(weekRef, (snapshot) => {
+    renderItems(snapshot);
+    if (!notesInited) {
+      initNotes(snapshot);
+      notesInited = true;
+      document.getElementById("status").textContent = "🟢 Live — syncing with everyone";
+    }
+  });
+
+  // expose for print button
+  window._weekRef = weekRef;
+</script>
+
+<style>
+  :root {
+    --cream: #fdf6ec;
+    --warm-dark: #1e1a16;
+    --red: #c0392b;
+    --amber: #d97706;
+    --green: #2d6a4f;
+    --red-bg: #fdf0ee;
+    --amber-bg: #fffbeb;
+    --green-bg: #f0faf5;
+    --red-badge: #fee2e2;
+    --amber-badge: #fef3c7;
+    --green-badge: #d1fae5;
+    --border: #e8ddd0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--cream);
+    color: var(--warm-dark);
+    min-height: 100vh;
+    padding: 32px 20px;
+  }
+
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+
+  header {
+    background: var(--warm-dark);
+    padding: 28px 36px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2rem;
+    color: #fff;
+    line-height: 1;
+  }
+
+  header h1 span {
+    display: block;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #a89880;
+    margin-bottom: 4px;
+  }
+
+  .date-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #a89880;
+    letter-spacing: 0.05em;
+    text-align: right;
+  }
+
+  .date-badge .week {
+    display: block;
+    font-size: 1rem;
+    color: #fff;
+    font-weight: 400;
+    font-family: 'Playfair Display', serif;
+    margin-top: 2px;
+  }
+
+  .status-bar {
+    background: #f9f4ef;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 36px;
+    font-size: 0.72rem;
+    color: #6b5e52;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  #status { font-weight: 600; }
+
+  .legend {
+    display: flex;
+    gap: 20px;
+    padding: 12px 36px;
+    background: #f9f4ef;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dot.red   { background: var(--red); }
+  .dot.amber { background: var(--amber); }
+  .dot.green { background: var(--green); }
+
+  .items { padding: 24px 36px; display: flex; flex-direction: column; gap: 14px; }
+
+  .item {
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: 12px;
+    border: 1.5px solid transparent;
+    transition: box-shadow 0.2s, opacity 0.3s;
+    animation: fadeUp 0.35s ease both;
+  }
+
+  .item:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  .item.red   { background: var(--red-bg);   border-color: #f5c6c0; }
+  .item.amber { background: var(--amber-bg); border-color: #fde68a; }
+  .item.green { background: var(--green-bg); border-color: #a7f3d0; }
+  .item.eaten { opacity: 0.38; }
+  .item.eaten .item-name label { text-decoration: line-through; }
+
+  .item-left { display: flex; flex-direction: column; gap: 5px; }
+
+  .item-name {
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .item-name input[type="checkbox"] {
+    width: 16px; height: 16px;
+    accent-color: var(--warm-dark);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .item-name label { cursor: pointer; }
+
+  .item-contents { font-size: 0.8rem; color: #6b5e52; line-height: 1.5; }
+
+  .item-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+
+  .badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  .item.red   .badge { background: var(--red-badge);   color: var(--red); }
+  .item.amber .badge { background: var(--amber-badge); color: #92400e; }
+  .item.green .badge { background: var(--green-badge); color: var(--green); }
+
+  .age { font-size: 0.72rem; color: #9c8b7e; white-space: nowrap; }
+
+  .notes-section { padding: 0 36px 24px; }
+
+  .notes-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #9c8b7e;
+    margin-bottom: 8px;
+  }
+
+  textarea#notes {
+    width: 100%;
+    min-height: 60px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.85rem;
+    color: var(--warm-dark);
+    resize: vertical;
+    background: #fafaf8;
+    outline: none;
+  }
+
+  textarea#notes:focus { border-color: #a89880; }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 14px 36px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.7rem;
+    color: #b0a090;
+  }
+
+  .btn-print {
+    background: var(--warm-dark);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+
+  .btn-print:hover { background: #3b3530; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @media print {
+    body { background: white; padding: 0; }
+    .page { box-shadow: none; border-radius: 0; }
+    .btn-print, .status-bar { display: none; }
+  }
+
+  @media (max-width: 480px) {
+    header, .items, .notes-section, footer, .legend, .status-bar { padding-left: 20px; padding-right: 20px; }
+    header h1 { font-size: 1.5rem; }
+    .item { grid-template-columns: 1fr; }
+    .item-right { flex-direction: row; align-items: center; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>
+      <span>Weekly</span>
+      Leftover Tracker
+    </h1>
+    <div class="date-badge">
+      Week of
+      <span class="week">April 17, 2026</span>
+    </div>
+  </header>
+
+  <div class="status-bar">
+    <span id="status">⏳ Connecting…</span>
+    <span>Shared · everyone sees the same board</span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="dot red"></div> Eat Today</div>
+    <div class="legend-item"><div class="dot amber"></div> Eat Soon</div>
+    <div class="legend-item"><div class="dot green"></div> Still Good</div>
+  </div>
+
+  <div class="items" id="items">
+    <div style="padding:40px; text-align:center; color:#9c8b7e; font-size:0.85rem;">
+      Connecting to database…
+    </div>
+  </div>
+
+  <div class="notes-section">
+    <div class="notes-label">Notes</div>
+    <textarea id="notes" placeholder="Meal ideas, who called dibs, anything…"></textarea>
+  </div>
+
+  <footer>
+    <span>✓ Check off items as they're eaten — syncs for everyone</span>
+    <button class="btn-print" onclick="window.print()">🖨 Print</button>
+  </footer>
+
+</div>
+</body>
+</html>
