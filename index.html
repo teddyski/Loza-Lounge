@@ -5,275 +5,312 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🍽 Loza Lounge</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getDatabase, ref, onValue, update, push, set, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue, update, push, set, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-  const firebaseConfig = {
-    apiKey:            "AIzaSyB7ujf5KvLqMQY5aRZnvrJRAApVH9STDfk",
-    authDomain:        "loza-lounge-leftovers.firebaseapp.com",
-    databaseURL:       "https://loza-lounge-leftovers-default-rtdb.firebaseio.com",
-    projectId:         "loza-lounge-leftovers",
-    storageBucket:     "loza-lounge-leftovers.firebasestorage.app",
-    messagingSenderId: "44554676568",
-    appId:             "1:44554676568:web:035bcd8f5f95999474dd2d"
-  };
+const firebaseConfig = {
+  apiKey:            "AIzaSyB7ujf5KvLqMQY5aRZnvrJRAApVH9STDfk",
+  authDomain:        "loza-lounge-leftovers.firebaseapp.com",
+  databaseURL:       "https://loza-lounge-leftovers-default-rtdb.firebaseio.com",
+  projectId:         "loza-lounge-leftovers",
+  storageBucket:     "loza-lounge-leftovers.firebasestorage.app",
+  messagingSenderId: "44554676568",
+  appId:             "1:44554676568:web:035bcd8f5f95999474dd2d"
+};
 
-  const FOOD_TYPES = [
-    { value: "red-meat",    label: "Red Meat (cooked)",   strict: 4, home: 6, icon: "🥩" },
-    { value: "poultry",     label: "Poultry (cooked)",    strict: 4, home: 5, icon: "🍗" },
-    { value: "seafood",     label: "Seafood (cooked)",    strict: 2, home: 3, icon: "🐟" },
-    { value: "pizza",       label: "Pizza",               strict: 4, home: 5, icon: "🍕" },
-    { value: "soup-stew",   label: "Soup / Stew",         strict: 4, home: 6, icon: "🍲" },
-    { value: "rice-grains", label: "Rice / Grains",       strict: 5, home: 6, icon: "🍚" },
-    { value: "eggs-dairy",  label: "Egg / Dairy Dish",    strict: 4, home: 5, icon: "🥚" },
-    { value: "salad",       label: "Salad / Greens",      strict: 2, home: 3, icon: "🥗" },
-    { value: "produce",     label: "Fresh Produce",       strict: 3, home: 5, icon: "🍓" },
-    { value: "baked",       label: "Baked Goods",         strict: 5, home: 7, icon: "🥧" },
-    { value: "mixed",       label: "Mixed Dish",          strict: 4, home: 6, icon: "🌯" },
-    { value: "other",       label: "Other",               strict: 4, home: 5, icon: "🍴" },
-  ];
+// ── FOOD TYPES ────────────────────────────────────────────────────
+const FOOD_TYPES = [
+  { value:"red-meat",    label:"Red Meat (cooked)",  home:6, strict:4, icon:"🥩" },
+  { value:"poultry",     label:"Poultry (cooked)",   home:5, strict:4, icon:"🍗" },
+  { value:"seafood",     label:"Seafood (cooked)",   home:3, strict:2, icon:"🐟" },
+  { value:"pizza",       label:"Pizza",              home:5, strict:4, icon:"🍕" },
+  { value:"soup-stew",   label:"Soup / Stew",        home:6, strict:4, icon:"🍲" },
+  { value:"rice-grains", label:"Rice / Grains",      home:6, strict:5, icon:"🍚" },
+  { value:"eggs-dairy",  label:"Egg / Dairy Dish",   home:5, strict:4, icon:"🥚" },
+  { value:"salad",       label:"Salad / Greens",     home:3, strict:2, icon:"🥗" },
+  { value:"produce",     label:"Fresh Produce",      home:5, strict:3, icon:"🍓" },
+  { value:"baked",       label:"Baked Goods",        home:7, strict:5, icon:"🥧" },
+  { value:"mixed",       label:"Mixed Dish",         home:6, strict:4, icon:"🌯" },
+  { value:"other",       label:"Other",              home:5, strict:4, icon:"🍴" },
+];
 
-  let safetyMode = "home"; // synced via Firebase so everyone sees the same
+function getFT(type) {
+  return FOOD_TYPES.find(f => f.value === type) || { home:5, strict:4, icon:"🍴", label:"Other" };
+}
 
-  const app      = initializeApp(firebaseConfig);
-  const db       = getDatabase(app);
-  const itemsRef = ref(db, "loza-lounge/items");
-  const modeRef  = ref(db, "loza-lounge/safetyMode");
+// ── FIREBASE INIT ─────────────────────────────────────────────────
+const app      = initializeApp(firebaseConfig);
+const db       = getDatabase(app);
+const itemsRef = ref(db, "loza-lounge/items");
+const modeRef  = ref(db, "loza-lounge/safetyMode");
 
-  // ── WEEK HELPERS ─────────────────────────────────────────────────
-  function getWeekStart(ts) {
-    const d = new Date(ts);
-    d.setHours(0,0,0,0);
-    d.setDate(d.getDate() - d.getDay()); // back to Sunday
-    return d.getTime();
+// ── STATE ─────────────────────────────────────────────────────────
+let allItems   = {};
+let safetyMode = "home";
+let showEaten  = false;
+let activeWeek = "";
+
+// ── HELPERS ───────────────────────────────────────────────────────
+function getDays(ft) {
+  const d = ft[safetyMode];
+  return typeof d === "number" ? d : ft.home || 5;
+}
+
+function getUrgency(createdAt, days) {
+  const daysOld = (Date.now() - createdAt) / 86400000;
+  const ratio   = daysOld / days;
+  if (ratio >= 1)   return { level:"red",   label:"Eat Today",  emoji:"🔴", daysOld: Math.floor(daysOld) };
+  if (ratio >= 0.6) return { level:"amber", label:"Eat Soon",   emoji:"🟡", daysOld: Math.floor(daysOld) };
+  return               { level:"green", label:"Still Good", emoji:"🟢", daysOld: Math.floor(daysOld) };
+}
+
+function getWeekStart(ts) {
+  const d = new Date(ts);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - d.getDay());
+  return d.getTime();
+}
+
+function weekLabel(ts) {
+  const d = new Date(getWeekStart(ts));
+  return "Week of " + d.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+}
+
+function todayValue() {
+  return new Date().toISOString().slice(0,10);
+}
+
+// ── RENDER ITEMS ─────────────────────────────────────────────────
+function renderItems() {
+  const container = document.getElementById("items");
+  let entries = Object.entries(allItems);
+
+  if (activeWeek) {
+    entries = entries.filter(([,v]) => getWeekStart(v.createdAt) === parseInt(activeWeek));
+  }
+  if (!showEaten) {
+    entries = entries.filter(([,v]) => !v.eaten);
   }
 
-  function weekLabel(ts) {
-    const d = new Date(getWeekStart(ts));
-    return `Week of ${d.toLocaleDateString("en-US", { month:"short", day:"numeric" })}`;
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="empty">No items here yet 🎉</div>';
+    return;
   }
 
-  // ── URGENCY ───────────────────────────────────────────────────────
-  function getUrgency(createdAt, shelfDays) {
-    const daysOld = (Date.now() - createdAt) / 86400000;
-    const ratio   = daysOld / shelfDays;
-    if (ratio >= 1)   return { level:"red",   label:"Eat Today",  emoji:"🔴", daysOld: Math.floor(daysOld) };
-    if (ratio >= 0.6) return { level:"amber", label:"Eat Soon",   emoji:"🟡", daysOld: Math.floor(daysOld) };
-    return               { level:"green", label:"Still Good", emoji:"🟢", daysOld: Math.floor(daysOld) };
-  }
-
-  let allItems   = {};
-  let showEaten  = false;
-  let activeWeek = ""; // "" = all weeks
-
-  // ── RENDER ITEMS ─────────────────────────────────────────────────
-  function renderItems() {
-    const container = document.getElementById("items");
-    let entries = Object.entries(allItems);
-
-    // week filter
-    if (activeWeek) {
-      entries = entries.filter(([,v]) => getWeekStart(v.createdAt) === parseInt(activeWeek));
-    }
-
-    if (!showEaten) entries = entries.filter(([,v]) => !v.eaten);
-
-    if (entries.length === 0) {
-      container.innerHTML = '<div class="empty">No items for this filter 🎉</div>';
-      return;
-    }
-
-    const order = { red:0, amber:1, green:2 };
-    entries.sort(([,a],[,b]) => {
-      if (a.eaten !== b.eaten) return a.eaten ? 1 : -1;
-      const fa = FOOD_TYPES.find(f=>f.value===a.type)||{strict:4,home:5};
-      const fb = FOOD_TYPES.find(f=>f.value===b.type)||{strict:4,home:5};
-      return order[getUrgency(a.createdAt,fa[safetyMode]).level] - order[getUrgency(b.createdAt,fb[safetyMode]).level];
-    });
-
-    container.innerHTML = "";
-    entries.forEach(([id, item], i) => {
-      const ft  = FOOD_TYPES.find(f=>f.value===item.type)||{strict:4,home:5,icon:"🍴",label:"Other"};
-      const urg = getUrgency(item.createdAt, ft[safetyMode]);
-      const daysLabel = urg.daysOld===0 ? "Added today" : `${urg.daysOld} day${urg.daysOld!==1?"s":""} old`;
-      const shelfDays = ft[safetyMode];
-
-      const el = document.createElement("div");
-      el.className = `item ${urg.level}${item.eaten?" eaten":""}`;
-      el.style.animationDelay = `${i*0.05}s`;
-      el.dataset.id = id;
-      el.innerHTML = `
-        <div class="item-left">
-          <div class="item-name">
-            <input type="checkbox" id="cb-${id}" ${item.eaten?"checked":""}>
-            <label for="cb-${id}">${ft.icon} ${item.name}</label>
-          </div>
-          ${item.description ? `<div class="item-contents">${item.description}</div>` : ""}
-          ${item.note ? `<div class="item-note">📝 ${item.note}</div>` : ""}
-          <div class="item-meta">${ft.label} &middot; Good for ${shelfDays} days &middot; ${weekLabel(item.createdAt)}</div>
-        </div>
-        <div class="item-right">
-          <span class="badge">${urg.emoji} ${urg.label}</span>
-          <span class="age">${daysLabel}</span>
-          <button class="btn-delete" data-id="${id}">&#x2715;</button>
-        </div>
-      `;
-
-      el.querySelector("input").addEventListener("change", e => {
-        update(ref(db,`loza-lounge/items/${id}`), { eaten: e.target.checked });
-      });
-      el.querySelector(".btn-delete").addEventListener("click", () => {
-        if (confirm(`Remove "${item.name}"?`)) remove(ref(db,`loza-lounge/items/${id}`));
-      });
-
-      container.appendChild(el);
-    });
-  }
-
-  // ── WEEK DROPDOWN ─────────────────────────────────────────────────
-  function rebuildWeekDropdown() {
-    const sel = document.getElementById("week-filter");
-    const prev = sel.value;
-
-    // collect unique week starts
-    const weeks = {};
-    Object.values(allItems).forEach(item => {
-      const ws = getWeekStart(item.createdAt);
-      weeks[ws] = weekLabel(item.createdAt);
-    });
-
-    sel.innerHTML = '<option value="">All weeks</option>';
-    Object.entries(weeks)
-      .sort(([a],[b]) => b - a) // newest first
-      .forEach(([ws, label]) => {
-        const opt = document.createElement("option");
-        opt.value = ws;
-        opt.textContent = label;
-        sel.appendChild(opt);
-      });
-
-    if (prev && weeks[prev]) sel.value = prev;
-    else sel.value = "";
-  }
-
-  // ── NOTES ITEM DROPDOWN ───────────────────────────────────────────
-  function rebuildNotesDropdown() {
-    const sel = document.getElementById("note-item-select");
-    const prev = sel.value;
-    sel.innerHTML = '<option value="">— Select an item —</option>';
-    Object.entries(allItems)
-      .filter(([,v]) => !v.eaten)
-      .sort(([,a],[,b]) => b.createdAt - a.createdAt)
-      .forEach(([id, item]) => {
-        const ft = FOOD_TYPES.find(f=>f.value===item.type)||{icon:"🍴"};
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = `${ft.icon} ${item.name}`;
-        sel.appendChild(opt);
-      });
-    if (prev) sel.value = prev;
-
-    // load existing note if selection still valid
-    if (sel.value && allItems[sel.value]) {
-      document.getElementById("note-text").value = allItems[sel.value].note || "";
-    }
-  }
-
-  // ── ADD ITEM ─────────────────────────────────────────────────────
-  function addItem() {
-    const nameEl = document.getElementById("new-name");
-    const typeEl = document.getElementById("new-type");
-    const descEl = document.getElementById("new-desc");
-    const name   = nameEl.value.trim();
-    if (!name) { nameEl.focus(); return; }
-    push(itemsRef, { name, type: typeEl.value, description: descEl.value.trim(), createdAt: Date.now(), eaten: false, note: "" });
-    nameEl.value = ""; descEl.value = "";
-    document.getElementById("add-form").classList.remove("open");
-    document.getElementById("toggle-add").textContent = "+ Add Item";
-  }
-
-  // ── SAVE NOTE TO ITEM ─────────────────────────────────────────────
-  function saveNote() {
-    const id   = document.getElementById("note-item-select").value;
-    const text = document.getElementById("note-text").value.trim();
-    if (!id) { document.getElementById("note-item-select").focus(); return; }
-    update(ref(db,`loza-lounge/items/${id}`), { note: text });
-    const s = document.getElementById("notes-status");
-    s.textContent = "Saved ✓";
-    setTimeout(() => s.textContent = "", 2000);
-  }
-
-  // ── LIVE LISTENER ─────────────────────────────────────────────────
-  onValue(modeRef, snap => {
-    safetyMode = snap.val() || "home";
-    const btn = document.getElementById("toggle-mode");
-    if (btn) {
-      btn.textContent = safetyMode === "home" ? "🏠 Home" : "🏥 Strict";
-      btn.classList.toggle("mode-strict", safetyMode === "strict");
-    }
-    renderItems();
+  const order = { red:0, amber:1, green:2 };
+  entries.sort(([,a],[,b]) => {
+    if (a.eaten !== b.eaten) return a.eaten ? 1 : -1;
+    const da = getDays(getFT(a.type));
+    const db = getDays(getFT(b.type));
+    return order[getUrgency(a.createdAt,da).level] - order[getUrgency(b.createdAt,db).level];
   });
 
-  onValue(itemsRef, snap => {
-    allItems = snap.val() || {};
-    renderItems();
-    rebuildWeekDropdown();
-    rebuildNotesDropdown();
-    const total = Object.keys(allItems).length;
-    const eaten = Object.values(allItems).filter(v=>v.eaten).length;
-    document.getElementById("count").textContent = `${total-eaten} active · ${eaten} eaten`;
-    document.getElementById("status").textContent = "🟢 Live";
-  });
+  container.innerHTML = "";
+  entries.forEach(([id, item], i) => {
+    const ft      = getFT(item.type);
+    const days    = getDays(ft);
+    const urg     = getUrgency(item.createdAt, days);
+    const daysOld = urg.daysOld;
+    const ageLabel = daysOld === 0 ? "Added today" : `${daysOld} day${daysOld !== 1 ? "s" : ""} old`;
 
-  // ── DOM READY ─────────────────────────────────────────────────────
-  window.addEventListener("DOMContentLoaded", () => {
-    // populate food type dropdown
-    const sel = document.getElementById("new-type");
-    FOOD_TYPES.forEach(ft => {
+    const el = document.createElement("div");
+    el.className = `item ${urg.level}${item.eaten ? " eaten" : ""}`;
+    el.style.animationDelay = `${i * 0.05}s`;
+    el.innerHTML = `
+      <div class="item-left">
+        <div class="item-name">
+          <input type="checkbox" id="cb-${id}" ${item.eaten ? "checked" : ""}>
+          <label for="cb-${id}">${ft.icon} ${item.name}</label>
+        </div>
+        ${item.description ? `<div class="item-contents">${item.description}</div>` : ""}
+        ${item.note ? `<div class="item-note">📝 ${item.note}</div>` : ""}
+        <div class="item-meta">${ft.label} &middot; Good for ${days} days &middot; ${weekLabel(item.createdAt)}</div>
+      </div>
+      <div class="item-right">
+        <span class="badge">${urg.emoji} ${urg.label}</span>
+        <span class="age">${ageLabel}</span>
+        <button class="btn-delete" data-id="${id}">&#x2715;</button>
+      </div>
+    `;
+
+    el.querySelector("input").addEventListener("change", e => {
+      update(ref(db, `loza-lounge/items/${id}`), { eaten: e.target.checked });
+    });
+    el.querySelector(".btn-delete").addEventListener("click", () => {
+      if (confirm(`Remove "${item.name}"?`)) remove(ref(db, `loza-lounge/items/${id}`));
+    });
+
+    container.appendChild(el);
+  });
+}
+
+// ── WEEK DROPDOWN ─────────────────────────────────────────────────
+function rebuildWeekDropdown() {
+  const sel  = document.getElementById("week-filter");
+  const prev = sel.value;
+  const weeks = {};
+  Object.values(allItems).forEach(item => {
+    const ws = getWeekStart(item.createdAt);
+    weeks[ws] = weekLabel(item.createdAt);
+  });
+  sel.innerHTML = '<option value="">All weeks</option>';
+  Object.entries(weeks)
+    .sort(([a],[b]) => b - a)
+    .forEach(([ws, lbl]) => {
       const opt = document.createElement("option");
-      opt.value = ft.value;
-      opt.textContent = `${ft.icon} ${ft.label} (${ft.days} days)`;
+      opt.value = ws; opt.textContent = lbl;
       sel.appendChild(opt);
     });
+  sel.value = prev && weeks[prev] ? prev : "";
+}
 
-    // add item toggle
-    document.getElementById("toggle-mode").addEventListener("click", () => {
-      set(modeRef, safetyMode === "home" ? "strict" : "home");
+// ── NOTES DROPDOWN ────────────────────────────────────────────────
+function rebuildNotesDropdown() {
+  const sel  = document.getElementById("note-item-select");
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— Select an item —</option>';
+  Object.entries(allItems)
+    .filter(([,v]) => !v.eaten)
+    .sort(([,a],[,b]) => b.createdAt - a.createdAt)
+    .forEach(([id, item]) => {
+      const ft  = getFT(item.type);
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = `${ft.icon} ${item.name}`;
+      sel.appendChild(opt);
     });
+  if (prev && allItems[prev]) {
+    sel.value = prev;
+    document.getElementById("note-text").value = allItems[prev].note || "";
+  }
+}
 
-    document.getElementById("toggle-add").addEventListener("click", () => {
-      const form = document.getElementById("add-form");
-      const open = form.classList.toggle("open");
-      document.getElementById("toggle-add").textContent = open ? "✕ Cancel" : "+ Add Item";
-      if (open) document.getElementById("new-name").focus();
-    });
+// ── ADD ITEM ─────────────────────────────────────────────────────
+function addItem() {
+  const nameEl = document.getElementById("new-name");
+  const typeEl = document.getElementById("new-type");
+  const descEl = document.getElementById("new-desc");
+  const dateEl = document.getElementById("new-date");
+  const name   = nameEl.value.trim();
+  if (!name) { nameEl.focus(); return; }
 
-    document.getElementById("btn-add-submit").addEventListener("click", addItem);
-    document.getElementById("new-name").addEventListener("keydown", e => { if(e.key==="Enter") addItem(); });
+  // parse the date the user picked; default to now if missing
+  let createdAt = Date.now();
+  if (dateEl.value) {
+    const d = new Date(dateEl.value + "T12:00:00");
+    if (!isNaN(d)) createdAt = d.getTime();
+  }
 
-    // show/hide eaten
-    document.getElementById("toggle-eaten").addEventListener("click", () => {
-      showEaten = !showEaten;
-      document.getElementById("toggle-eaten").textContent = showEaten ? "Hide eaten" : "Show eaten";
-      renderItems();
-    });
-
-    // week filter
-    document.getElementById("week-filter").addEventListener("change", e => {
-      activeWeek = e.target.value;
-      renderItems();
-    });
-
-    // notes
-    document.getElementById("note-item-select").addEventListener("change", e => {
-      const id = e.target.value;
-      document.getElementById("note-text").value = id && allItems[id] ? (allItems[id].note || "") : "";
-    });
-    document.getElementById("btn-save-notes").addEventListener("click", saveNote);
-    document.getElementById("btn-print").addEventListener("click", () => window.print());
+  push(itemsRef, {
+    name,
+    type:        typeEl.value,
+    description: descEl.value.trim(),
+    createdAt,
+    eaten:       false,
+    note:        ""
   });
+
+  nameEl.value = ""; descEl.value = ""; dateEl.value = todayValue();
+  document.getElementById("add-form").classList.remove("open");
+  document.getElementById("toggle-add").textContent = "+ Add Item";
+}
+
+// ── SAVE NOTE ─────────────────────────────────────────────────────
+function saveNote() {
+  const id   = document.getElementById("note-item-select").value;
+  const text = document.getElementById("note-text").value.trim();
+  if (!id) { document.getElementById("note-item-select").focus(); return; }
+  update(ref(db, `loza-lounge/items/${id}`), { note: text });
+  const s = document.getElementById("notes-status");
+  s.textContent = "Saved ✓";
+  setTimeout(() => s.textContent = "", 2000);
+}
+
+// ── UPDATE MODE BUTTON ────────────────────────────────────────────
+function updateModeBtn() {
+  const btn = document.getElementById("toggle-mode");
+  if (!btn) return;
+  if (safetyMode === "home") {
+    btn.textContent = "🏠 Home";
+    btn.classList.remove("mode-strict");
+  } else {
+    btn.textContent = "🏥 Strict";
+    btn.classList.add("mode-strict");
+  }
+}
+
+// ── FIREBASE LISTENERS ────────────────────────────────────────────
+onValue(modeRef, snap => {
+  safetyMode = snap.val() || "home";
+  updateModeBtn();
+  renderItems();
+});
+
+onValue(itemsRef, snap => {
+  allItems = snap.val() || {};
+  renderItems();
+  rebuildWeekDropdown();
+  rebuildNotesDropdown();
+  const total = Object.keys(allItems).length;
+  const eaten = Object.values(allItems).filter(v => v.eaten).length;
+  document.getElementById("count").textContent = `${total - eaten} active · ${eaten} eaten`;
+  document.getElementById("status").textContent = "🟢 Live";
+});
+
+// ── DOM READY ─────────────────────────────────────────────────────
+window.addEventListener("DOMContentLoaded", () => {
+
+  // set date picker default to today
+  document.getElementById("new-date").value = todayValue();
+
+  // populate food type dropdown
+  const typeSel = document.getElementById("new-type");
+  FOOD_TYPES.forEach(ft => {
+    const opt = document.createElement("option");
+    opt.value = ft.value;
+    opt.textContent = `${ft.icon} ${ft.label}`;
+    typeSel.appendChild(opt);
+  });
+
+  // add item toggle
+  document.getElementById("toggle-add").addEventListener("click", () => {
+    const form = document.getElementById("add-form");
+    const open = form.classList.toggle("open");
+    document.getElementById("toggle-add").textContent = open ? "✕ Cancel" : "+ Add Item";
+    if (open) document.getElementById("new-name").focus();
+  });
+
+  document.getElementById("btn-add-submit").addEventListener("click", addItem);
+  document.getElementById("new-name").addEventListener("keydown", e => { if (e.key === "Enter") addItem(); });
+
+  // mode toggle
+  document.getElementById("toggle-mode").addEventListener("click", () => {
+    set(modeRef, safetyMode === "home" ? "strict" : "home");
+  });
+
+  // show/hide eaten
+  document.getElementById("toggle-eaten").addEventListener("click", () => {
+    showEaten = !showEaten;
+    document.getElementById("toggle-eaten").textContent = showEaten ? "Hide eaten" : "Show eaten";
+    renderItems();
+  });
+
+  // week filter
+  document.getElementById("week-filter").addEventListener("change", e => {
+    activeWeek = e.target.value;
+    renderItems();
+  });
+
+  // notes
+  document.getElementById("note-item-select").addEventListener("change", e => {
+    const id = e.target.value;
+    document.getElementById("note-text").value = (id && allItems[id]) ? (allItems[id].note || "") : "";
+  });
+
+  document.getElementById("btn-save-notes").addEventListener("click", saveNote);
+  document.getElementById("btn-print").addEventListener("click", () => window.print());
+});
 </script>
 
 <style>
@@ -288,60 +325,42 @@
   body { font-family:'DM Sans',sans-serif; background:var(--cream); color:var(--warm-dark); min-height:100vh; padding:32px 20px; }
   .page { max-width:720px; margin:0 auto; background:#fff; border-radius:16px; box-shadow:0 4px 40px rgba(0,0,0,0.08); overflow:hidden; }
 
-  /* HEADER */
-  header { background:var(--warm-dark); padding:26px 36px 22px; display:flex; justify-content:space-between; align-items:flex-end; gap:16px; }
+  header { background:var(--warm-dark); padding:26px 36px 22px; display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; }
   header h1 { font-family:'Playfair Display',serif; font-size:1.9rem; color:#fff; line-height:1; flex-shrink:0; }
   header h1 span { display:block; font-family:'DM Sans',sans-serif; font-size:0.67rem; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#a89880; margin-bottom:5px; }
   .header-right { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
   #status { font-size:0.72rem; font-weight:600; color:#a89880; }
-  #count { font-size:0.72rem; color:#7a6a5a; background:rgba(255,255,255,0.08); padding:3px 10px; border-radius:20px; white-space:nowrap; }
-
-  /* WEEK FILTER */
-  #week-filter {
-    font-family:'DM Sans',sans-serif;
-    font-size:0.75rem;
-    font-weight:600;
-    background:rgba(255,255,255,0.1);
-    color:#fff;
-    border:1.5px solid rgba(255,255,255,0.2);
-    border-radius:7px;
-    padding:5px 10px;
-    cursor:pointer;
-    outline:none;
-    max-width:160px;
-  }
+  #count  { font-size:0.72rem; color:#7a6a5a; background:rgba(255,255,255,0.08); padding:3px 10px; border-radius:20px; white-space:nowrap; }
+  #week-filter { font-family:'DM Sans',sans-serif; font-size:0.75rem; font-weight:600; background:rgba(255,255,255,0.1); color:#fff; border:1.5px solid rgba(255,255,255,0.2); border-radius:7px; padding:5px 10px; cursor:pointer; outline:none; }
   #week-filter option { background:#1e1a16; color:#fff; }
-  #week-filter:focus { border-color:rgba(255,255,255,0.4); }
 
-  /* TOOLBAR */
   .toolbar { display:flex; gap:10px; padding:13px 36px; background:#f9f4ef; border-bottom:1px solid var(--border); flex-wrap:wrap; }
-  .btn { font-family:'DM Sans',sans-serif; font-size:0.75rem; font-weight:600; letter-spacing:0.05em; padding:7px 16px; border-radius:6px; border:none; cursor:pointer; transition:background 0.15s; }
+  .btn { font-family:'DM Sans',sans-serif; font-size:0.75rem; font-weight:600; letter-spacing:0.05em; padding:7px 16px; border-radius:6px; border:none; cursor:pointer; transition:all 0.15s; }
   .btn-primary { background:var(--warm-dark); color:#fff; }
   .btn-primary:hover { background:#3b3530; }
   .btn-ghost { background:transparent; color:#6b5e52; border:1.5px solid var(--border); }
   .btn-ghost:hover { background:var(--border); }
   .mode-strict { border-color:#f5c6c0 !important; color:var(--red) !important; background:var(--red-badge) !important; }
 
-  /* ADD FORM */
   #add-form { max-height:0; overflow:hidden; transition:max-height 0.3s ease; background:#faf7f3; border-bottom:1px solid var(--border); }
-  #add-form.open { max-height:320px; padding:20px 36px; }
+  #add-form.open { max-height:380px; padding:20px 36px; }
   .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+  .form-row-3 { display:grid; grid-template-columns:2fr 1fr 1fr; gap:12px; margin-bottom:12px; }
   .form-field { display:flex; flex-direction:column; gap:5px; }
   .form-field label { font-size:0.67rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#9c8b7e; }
-  .form-field input,.form-field select,.form-field textarea { font-family:'DM Sans',sans-serif; font-size:0.88rem; padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; background:#fff; color:var(--warm-dark); outline:none; }
+  .form-field input,.form-field select,.form-field textarea { font-family:'DM Sans',sans-serif; font-size:0.88rem; padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; background:#fff; color:var(--warm-dark); outline:none; width:100%; }
   .form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:#a89880; }
   .form-field textarea { resize:none; height:56px; }
   .form-actions { margin-top:4px; }
 
-  /* LEGEND */
   .legend { display:flex; gap:20px; padding:10px 36px; background:#f9f4ef; border-bottom:1px solid var(--border); font-size:0.7rem; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; }
   .legend-item { display:flex; align-items:center; gap:6px; }
   .dot { width:9px; height:9px; border-radius:50%; }
   .dot.red{background:var(--red);} .dot.amber{background:var(--amber);} .dot.green{background:var(--green);}
 
-  /* ITEMS */
   .items { padding:20px 36px; display:flex; flex-direction:column; gap:12px; min-height:80px; }
   .empty { text-align:center; padding:40px; color:#9c8b7e; font-size:0.9rem; }
+
   .item { border-radius:10px; padding:14px 18px; display:grid; grid-template-columns:1fr auto; align-items:start; gap:12px; border:1.5px solid transparent; transition:opacity 0.3s,box-shadow 0.2s; animation:fadeUp 0.3s ease both; }
   .item:hover { box-shadow:0 2px 12px rgba(0,0,0,0.07); }
   .item.red   { background:var(--red-bg);   border-color:#f5c6c0; }
@@ -365,18 +384,15 @@
   .btn-delete { background:none; border:none; font-size:0.7rem; color:#c0b0a0; cursor:pointer; padding:2px 5px; border-radius:4px; transition:color 0.15s,background 0.15s; }
   .btn-delete:hover { color:var(--red); background:var(--red-badge); }
 
-  /* NOTES */
   .notes-section { padding:0 36px 24px; }
   .notes-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
   .notes-label { font-size:0.7rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#9c8b7e; }
-  .notes-actions { display:flex; align-items:center; gap:10px; }
-  #notes-status { font-size:0.7rem; color:var(--green); font-weight:600; min-width:50px; }
-  .note-row { display:grid; grid-template-columns:1fr; gap:10px; }
+  #notes-status { font-size:0.7rem; color:var(--green); font-weight:600; }
   #note-item-select { font-family:'DM Sans',sans-serif; font-size:0.85rem; padding:8px 12px; border:1.5px solid var(--border); border-radius:8px; background:#fafaf8; color:var(--warm-dark); outline:none; width:100%; margin-bottom:8px; }
   #note-item-select:focus { border-color:#a89880; }
   textarea#note-text { width:100%; min-height:70px; border:1.5px solid var(--border); border-radius:8px; padding:10px 14px; font-family:'DM Sans',sans-serif; font-size:0.85rem; color:var(--warm-dark); resize:vertical; background:#fafaf8; outline:none; }
   textarea#note-text:focus { border-color:#a89880; }
-  .note-save-row { display:flex; justify-content:flex-end; margin-top:8px; align-items:center; gap:12px; }
+  .note-save-row { display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:8px; }
 
   footer { border-top:1px solid var(--border); padding:12px 36px; display:flex; justify-content:space-between; font-size:0.7rem; color:#b0a090; }
 
@@ -385,10 +401,10 @@
   @media(max-width:520px){
     header,.toolbar,.items,.notes-section,footer,.legend{padding-left:18px;padding-right:18px;}
     #add-form.open{padding:16px 18px;}
-    header{flex-direction:column;align-items:flex-start;gap:12px;}
+    header{flex-direction:column;align-items:flex-start;}
     .header-right{align-items:flex-start;}
     header h1{font-size:1.4rem;}
-    .form-row{grid-template-columns:1fr;}
+    .form-row,.form-row-3{grid-template-columns:1fr;}
     .item{grid-template-columns:1fr;}
   }
   @media print{
@@ -401,6 +417,7 @@
 </head>
 <body>
 <div class="page">
+
   <header>
     <h1><span>Loza Lounge</span>Leftover Tracker</h1>
     <div class="header-right">
@@ -418,7 +435,7 @@
   </div>
 
   <div id="add-form">
-    <div class="form-row">
+    <div class="form-row-3">
       <div class="form-field">
         <label>Dish Name</label>
         <input type="text" id="new-name" placeholder="e.g. Pulled Pork">
@@ -426,6 +443,10 @@
       <div class="form-field">
         <label>Food Type</label>
         <select id="new-type"></select>
+      </div>
+      <div class="form-field">
+        <label>Date Made</label>
+        <input type="date" id="new-date">
       </div>
     </div>
     <div class="form-field" style="margin-bottom:12px;">
@@ -450,7 +471,7 @@
       <span class="notes-label">Item Notes</span>
       <span id="notes-status"></span>
     </div>
-    <select id="note-item-select"><option value="">— Select an item to add a note —</option></select>
+    <select id="note-item-select"><option value="">— Select an item —</option></select>
     <textarea id="note-text" placeholder="Reheating tips, who called dibs, storage location…"></textarea>
     <div class="note-save-row">
       <button class="btn btn-primary" id="btn-save-notes">Save Note</button>
