@@ -1,6 +1,7 @@
 # 🔥 Loza Lounge
 
 A real-time shared household tool built on Firebase + GitHub Pages.
+![Loza Lounge Leftover Tracker](Images/example.png)
 
 ## Current: Leftover Tracker
 
